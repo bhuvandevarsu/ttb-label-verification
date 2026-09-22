@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Label Verification</title>
+<style>
+:root{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fb}*{box-sizing:border-box}body{margin:0}.top{background:#102a43;color:#fff;padding:20px 32px}.top h1{margin:0;font-size:22px}.top p{margin:5px 0 0;color:#c9d8e8;font-size:13px}.wrap{max-width:1120px;margin:28px auto;padding:0 20px}.grid{display:grid;grid-template-columns:390px 1fr;gap:22px}.card{background:#fff;border:1px solid #dfe5ec;border-radius:14px;padding:20px;box-shadow:0 3px 14px #1720330c}.card h2{font-size:16px;margin:0 0 16px}.drop{border:2px dashed #9fb2c6;border-radius:12px;padding:26px;text-align:center;background:#f8fafc;cursor:pointer}.drop.drag{background:#eef5ff;border-color:#356ae6}.drop strong{display:block}.drop small{color:#68778a}.fields{display:grid;gap:10px;margin-top:16px}.field label{display:block;font-size:12px;font-weight:700;color:#536174;margin-bottom:5px}.field input{width:100%;padding:10px;border:1px solid #cbd5e1;border-radius:8px;font:inherit}.actions{display:flex;gap:9px;margin-top:16px}.btn{border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}.primary{background:#2463eb;color:#fff}.secondary{background:#e9eef5;color:#24364b}.btn:disabled{opacity:.5;cursor:not-allowed}.results{min-height:520px}.empty{text-align:center;padding:100px 20px;color:#68778a}.summary{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px}.pill{padding:7px 10px;border-radius:999px;background:#eef2f7;font-size:12px;font-weight:700}.result{border:1px solid #e0e6ee;border-radius:11px;padding:15px;margin:10px 0}.result-head{display:flex;justify-content:space-between;gap:10px;align-items:center}.filename{font-weight:750}.status{font-size:11px;font-weight:800;padding:5px 8px;border-radius:999px}.PASS{background:#dff6e7;color:#146c36}.FAIL{background:#fde4e4;color:#a52121}.NEEDS{background:#fff0c9;color:#805600}.ERROR{background:#eee;color:#444}.checks{margin-top:12px}.check{display:grid;grid-template-columns:24px 150px 1fr;gap:8px;padding:7px 0;border-top:1px solid #edf0f4;font-size:13px}.check .ok{color:#147a3d;font-weight:900}.check .bad{color:#b42318;font-weight:900}.muted{color:#69778a}.notice{font-size:12px;color:#59677a;margin-top:14px;line-height:1.5}.hidden{display:none}.bar{height:8px;background:#e7edf4;border-radius:10px;overflow:hidden;margin:12px 0}.bar>div{height:100%;width:0;background:#2463eb;transition:width .2s}.raw{background:#f7f9fb;border-radius:8px;padding:10px;white-space:pre-wrap;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;max-height:150px;overflow:auto}.batch-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}@media(max-width:850px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top"><h1>TTB Label Verification</h1><p>AI-assisted label review prototype · standalone proof of concept</p></header>
+<main class="wrap"><div class="grid">
+<section class="card">
+<h2>Application Information</h2>
+<div id="drop" class="drop"><strong>Drop label images here</strong><small>or click to browse · PNG, JPG, JPEG</small><input id="files" type="file" accept="image/png,image/jpeg" multiple hidden></div>
+<div class="fields">
+<div class="field"><label>Brand Name</label><input id="brand_name" value="OLD TOM DISTILLERY"></div>
+<div class="field"><label>Class/Type</label><input id="class_type" value="Kentucky Straight Bourbon Whiskey"></div>
+<div class="field"><label>Alcohol Content</label><input id="alcohol_content" value="45%"></div>
+<div class="field"><label>Net Contents</label><input id="net_contents" value="750 mL"></div>
+<div class="field"><label>Producer/Bottler</label><input id="producer" value="Old Tom Distillery"></div>
+<div class="field"><label>Country of Origin</label><input id="country_of_origin" value="United States"></div>
+</div>
+<div class="actions"><button class="btn primary" id="verify" disabled>Verify Labels</button><button class="btn secondary" id="clear">Clear</button></div>
+<p class="notice">For production use, OCR should run in a controlled environment and sensitive documents should follow applicable federal retention and security requirements.</p>
+</section>
+<section class="card results"><div class="batch-row"><h2>Verification Results</h2><button class="btn secondary hidden" id="export">Download CSV</button></div><div id="progress" class="hidden"><div id="progressText">Processing…</div><div class="bar"><div id="bar"></div></div></div><div id="output" class="empty">Upload one or more labels to begin.</div></section>
+</div></main>
+<script>
+const $=id=>document.getElementById(id);let selected=[];let lastResults=[];
+const drop=$('drop'), files=$('files'), verify=$('verify'), output=$('output'), progress=$('progress'), bar=$('bar'), progressText=$('progressText'), exportBtn=$('export');
+drop.onclick=()=>files.click();files.onchange=e=>setFiles([...e.target.files]);
+['dragenter','dragover'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.add('drag')}));['dragleave','drop'].forEach(x=>drop.addEventListener(x,e=>{e.preventDefault();drop.classList.remove('drag')}));drop.addEventListener('drop',e=>setFiles([...e.dataTransfer.files].filter(f=>f.type.startsWith('image/'))));
+function setFiles(f){selected=f;verify.disabled=!selected.length;drop.querySelector('strong').textContent=selected.length?`${selected.length} label${selected.length>1?'s':''} selected`:'Drop label images here';drop.querySelector('small').textContent=selected.length?'Ready to verify':'or click to browse · PNG, JPG, JPEG'}
+function appData(){let x={};['brand_name','class_type','alcohol_content','net_contents','producer','country_of_origin'].forEach(k=>x[k]=$(k).value);return x}
+verify.onclick=async()=>{if(!selected.length)return;verify.disabled=true;progress.classList.remove('hidden');bar.style.width='10%';output.innerHTML='';let fd=new FormData();selected.forEach(f=>fd.append('files',f));fd.append('application_json',JSON.stringify(appData()));try{let r=await fetch('/api/batch',{method:'POST',body:fd});let data=await r.json();if(!r.ok)throw Error(data.detail||'Request failed');lastResults=data.results;render(data)}catch(e){output.className='empty';output.textContent=e.message}finally{bar.style.width='100%';progressText.textContent='Complete';setTimeout(()=>progress.classList.add('hidden'),600);verify.disabled=false}}
+function render(data){output.className='';output.innerHTML=`<div class="summary"><span class="pill">${data.total} total</span><span class="pill">✓ ${data.passed} passed</span><span class="pill">⚠ ${data.review} review</span><span class="pill">✕ ${data.failed} failed</span>${data.errors?`<span class="pill">${data.errors} errors</span>`:''}</div>`+data.results.map(renderOne).join('');exportBtn.classList.remove('hidden')}
+function renderOne(r){let cls=r.status==='NEEDS REVIEW'?'NEEDS':r.status;return `<div class="result"><div class="result-head"><span class="filename">${esc(r.filename)}</span><span class="status ${cls}">${esc(r.status)}</span></div><p class="muted">${esc((r.reasons||[]).join(' · '))} · OCR confidence ${Math.round((r.ocr_confidence||0)*100)}%</p><div class="checks">${(r.checks||[]).map(c=>`<div class="check"><span class="${c.status==='pass'?'ok':'bad'}">${c.status==='pass'?'✓':'✕'}</span><b>${esc(c.field)}</b><span>${esc(c.detail)}</span></div>`).join('')}</div><details><summary>View extracted text</summary><pre class="raw">${esc(r.raw_text||'')}</pre></details></div>`}
+function esc(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]))}
+exportBtn.onclick=async()=>{let r=await fetch('/api/export-csv',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({results:lastResults})});let b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='verification-results.csv';a.click();URL.revokeObjectURL(u)};
+$('clear').onclick=()=>{selected=[];files.value='';verify.disabled=true;output.className='empty';output.textContent='Upload one or more labels to begin.';exportBtn.classList.add('hidden');drop.querySelector('strong').textContent='Drop label images here';drop.querySelector('small').textContent='or click to browse · PNG, JPG, JPEG'};
+</script>
+</body></html>

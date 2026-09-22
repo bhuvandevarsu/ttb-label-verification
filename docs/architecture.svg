@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="650" viewBox="0 0 1200 650">
+<rect width="1200" height="650" fill="#f6f8fb"/>
+<text x="60" y="65" font-family="Arial" font-size="30" font-weight="700" fill="#172033">TTB Label Verification Architecture</text>
+<text x="60" y="98" font-family="Arial" font-size="16" fill="#5f6f82">Standalone prototype · local OCR · deterministic compliance rules</text>
+<g font-family="Arial">
+<rect x="70" y="170" width="220" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="180" y="215" text-anchor="middle" font-size="20" font-weight="700">Agent UI</text><text x="180" y="245" text-anchor="middle" font-size="14">Single / batch upload</text><text x="180" y="268" text-anchor="middle" font-size="14">Application fields</text>
+<rect x="345" y="170" width="220" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="455" y="215" text-anchor="middle" font-size="20" font-weight="700">FastAPI</text><text x="455" y="245" text-anchor="middle" font-size="14">Upload + orchestration</text><text x="455" y="268" text-anchor="middle" font-size="14">Batch worker pool</text>
+<rect x="620" y="170" width="220" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="730" y="215" text-anchor="middle" font-size="20" font-weight="700">OCR Pipeline</text><text x="730" y="245" text-anchor="middle" font-size="14">EXIF / grayscale</text><text x="730" y="268" text-anchor="middle" font-size="14">Contrast / sharpening</text>
+<rect x="895" y="170" width="235" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="1012" y="215" text-anchor="middle" font-size="20" font-weight="700">Field Extraction</text><text x="1012" y="245" text-anchor="middle" font-size="14">Brand, ABV, volume</text><text x="1012" y="268" text-anchor="middle" font-size="14">Warning + producer</text>
+<g stroke="#2463eb" stroke-width="4" fill="none"><path d="M290 230h55"/><path d="M565 230h55"/><path d="M840 230h55"/></g>
+<g fill="#2463eb"><path d="M345 230l-12-8v16z"/><path d="M620 230l-12-8v16z"/><path d="M895 230l-12-8v16z"/></g>
+<rect x="345" y="390" width="220" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="455" y="435" text-anchor="middle" font-size="20" font-weight="700">Rule Engine</text><text x="455" y="465" text-anchor="middle" font-size="14">Normalized text</text><text x="455" y="488" text-anchor="middle" font-size="14">Numeric + exact warning</text>
+<rect x="620" y="390" width="220" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="730" y="435" text-anchor="middle" font-size="20" font-weight="700">Decision</text><text x="730" y="465" text-anchor="middle" font-size="14">PASS</text><text x="730" y="488" text-anchor="middle" font-size="14">NEEDS REVIEW / FAIL</text>
+<rect x="895" y="390" width="235" height="120" rx="18" fill="#fff" stroke="#c9d5e2" stroke-width="2"/>
+<text x="1012" y="435" text-anchor="middle" font-size="20" font-weight="700">Audit-Friendly Result</text><text x="1012" y="465" text-anchor="middle" font-size="14">Field-by-field reasons</text><text x="1012" y="488" text-anchor="middle" font-size="14">CSV export</text>
+<g stroke="#2463eb" stroke-width="4" fill="none"><path d="M730 290v65H455v35"/><path d="M565 450h55"/><path d="M840 450h55"/></g>
+<g fill="#2463eb"><path d="M455 390l-8-12h16z"/><path d="M620 450l-12-8v16z"/><path d="M895 450l-12-8v16z"/></g>
+<text x="70" y="590" font-family="Arial" font-size="15" fill="#5f6f82">Production extension: secure storage, identity/access controls, retention policies, logging, validation, and future COLA integration.</text>
+</g></svg>
