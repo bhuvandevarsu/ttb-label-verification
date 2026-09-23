@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import csv
 import io
 import json
@@ -25,6 +26,9 @@ except Exception:
 BASE_DIR = Path(__file__).resolve().parent
 app = FastAPI(title="TTB Label Verification Prototype", version="1.1.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
+
+# Keep OCR concurrency deliberately small so lightweight hosts remain responsive.
+OCR_EXECUTOR = ThreadPoolExecutor(max_workers=2, thread_name_prefix="ocr")
 
 STANDARD_WARNING = (
     "GOVERNMENT WARNING: (1) According to the Surgeon General, women should not drink alcoholic beverages during pregnancy because of the risk of birth defects. "
@@ -212,7 +216,8 @@ async def verify_one(file: UploadFile = File(...), application_json: str = Form(
         raw_text, confidence = manual_ocr, 0.90
     else:
         try:
-            raw_text, confidence = ocr_image(data)
+            loop = asyncio.get_running_loop()
+            raw_text, confidence = await loop.run_in_executor(OCR_EXECUTOR, ocr_image, data)
         except Exception as exc:
             return JSONResponse({"error": str(exc), "filename": file.filename}, status_code=422)
     result = verify(application, parse_fields(raw_text), raw_text, confidence)
@@ -235,8 +240,12 @@ def process_batch_item(item: tuple[str, bytes, dict[str, str], str]) -> dict[str
 async def verify_batch(files: list[UploadFile] = File(...), application_json: str = Form(...)):
     application = json.loads(application_json)
     items = [(f.filename, await f.read(), application, "") for f in files]
-    with ThreadPoolExecutor(max_workers=min(6, max(1, len(items)))) as pool:
-        results = list(pool.map(process_batch_item, items))
+    loop = asyncio.get_running_loop()
+    # Run blocking Tesseract calls off the event loop. The bounded executor keeps
+    # health checks responsive and avoids spawning many OCR processes at once.
+    results = await asyncio.gather(
+        *(loop.run_in_executor(OCR_EXECUTOR, process_batch_item, item) for item in items)
+    )
     return {"total": len(results), "passed": sum(r["status"] == "PASS" for r in results), "review": sum(r["status"] == "NEEDS REVIEW" for r in results), "failed": sum(r["status"] == "FAIL" for r in results), "errors": sum(r["status"] == "ERROR" for r in results), "results": results}
 
 

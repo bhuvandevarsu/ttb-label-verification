@@ -123,3 +123,9 @@ The included unit tests cover field extraction, a passing verification, and a go
 ## Scope rationale
 
 The take-home asks for a working core application with clean code, appropriate technical choices, good UX/error handling, attention to requirements, and documented trade-offs. The prototype prioritizes those areas instead of attempting a multi-million-dollar COLA rebuild or a production federal deployment.
+
+## Render deployment
+
+This project is deployment-safe for a small Render web service. Blocking Tesseract OCR runs in a bounded worker pool so the FastAPI event loop remains available for health checks while OCR is in progress. The Docker image binds Uvicorn to Render's `PORT` environment variable, defaulting to port 10000.
+
+Recommended Render health check path: `/api/health`.
