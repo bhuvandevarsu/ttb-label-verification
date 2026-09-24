@@ -129,3 +129,9 @@ The take-home asks for a working core application with clean code, appropriate t
 This project is deployment-safe for a small Render web service. Blocking Tesseract OCR runs in a bounded worker pool so the FastAPI event loop remains available for health checks while OCR is in progress. The Docker image binds Uvicorn to Render's `PORT` environment variable, defaulting to port 10000.
 
 Recommended Render health check path: `/api/health`.
+
+## Latency-oriented OCR strategy
+
+The OCR pipeline is optimized around the prototype's interactive latency requirement. Each label first receives one source-resolution Tesseract pass after lightweight grayscale/contrast preprocessing. A more expensive 1.5x-resolution retry runs only when OCR confidence is low, too few fields are found, or a critical numeric field (ABV/net contents) is missing. Text ambiguity is routed to human review instead of repeatedly OCRing every image. Batch OCR remains bounded to two workers so the API and health endpoint stay responsive on lightweight hosts.
+
+On the included six synthetic fixtures in the development environment, the optimized two-worker batch completed in about 5.3 seconds total while preserving the expected outcomes (3 PASS, 1 NEEDS REVIEW, 2 FAIL). Hosted latency varies with instance CPU, cold starts, and contention, so this benchmark is illustrative rather than a production SLA.

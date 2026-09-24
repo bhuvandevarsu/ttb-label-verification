@@ -108,52 +108,83 @@ def parse_fields(text: str) -> dict[str, str]:
     }
 
 
-def _variants(image: Image.Image) -> list[Image.Image]:
+def _base_preprocess(image: Image.Image) -> Image.Image:
+    """Fast first-pass preprocessing: improve contrast without increasing pixel count."""
     base = ImageOps.exif_transpose(image).convert("RGB")
-    gray = ImageOps.grayscale(base)
-    gray = ImageOps.autocontrast(gray)
+    gray = ImageOps.autocontrast(ImageOps.grayscale(base))
     gray = ImageEnhance.Contrast(gray).enhance(1.35)
-    gray = ImageEnhance.Sharpness(gray).enhance(1.7)
-    # Upscaling helps small label text while preserving a simple local pipeline.
-    scale = 1.5 if max(gray.size) < 2200 else 1.0
-    if scale != 1.0:
-        gray = gray.resize((int(gray.width * scale), int(gray.height * scale)), Image.Resampling.LANCZOS)
-    variants = [gray]
-    variants.append(gray.filter(ImageFilter.SHARPEN))
-    variants.append(gray.point(lambda p: 255 if p > 165 else 0))
-    return variants
+    return ImageEnhance.Sharpness(gray).enhance(1.7)
+
+
+def _enhanced_preprocess(image: Image.Image) -> Image.Image:
+    """More expensive fallback used only when the fast pass misses critical fields."""
+    gray = _base_preprocess(image)
+    if max(gray.size) < 2200:
+        gray = gray.resize((int(gray.width * 1.5), int(gray.height * 1.5)), Image.Resampling.LANCZOS)
+    return gray
 
 
 def preprocess(image: Image.Image) -> Image.Image:
-    return _variants(image)[0]
+    return _base_preprocess(image)
+
+
+def _ocr_pass(candidate: Image.Image) -> tuple[str, float]:
+    data_out = pytesseract.image_to_data(candidate, config="--psm 6", output_type=Output.DICT)
+    confidences = []
+    grouped = {}
+    for i, word in enumerate(data_out["text"]):
+        word = word.strip()
+        if not word:
+            continue
+        key = (data_out["block_num"][i], data_out["par_num"][i], data_out["line_num"][i])
+        grouped.setdefault(key, []).append(word)
+        try:
+            confidence = float(data_out["conf"][i])
+            if confidence >= 0:
+                confidences.append(confidence)
+        except (TypeError, ValueError):
+            pass
+    text = "\n".join(" ".join(line) for line in grouped.values()).strip()
+    mean_conf = (sum(confidences) / len(confidences) / 100.0) if confidences else 0.0
+    return text, mean_conf
+
+
+def _needs_enhanced_retry(text: str, confidence: float) -> bool:
+    """Retry only when the fast pass is genuinely unusable or misses numeric fields.
+
+    Numeric fields are high-value deterministic checks. Text ambiguity is intentionally
+    routed to NEEDS REVIEW rather than paying for repeated OCR on every label.
+    """
+    fields = parse_fields(text)
+    populated = sum(bool(v) for k, v in fields.items() if k != "government_warning")
+    return (
+        confidence < 0.65
+        or populated < 3
+        or not fields.get("alcohol_content")
+        or not fields.get("net_contents")
+    )
 
 
 def ocr_image(data: bytes) -> tuple[str, float]:
     if not TESSERACT_AVAILABLE:
         raise RuntimeError("OCR engine unavailable. Install Tesseract and pytesseract.")
     image = Image.open(io.BytesIO(data))
-    best_text, best_conf, best_score = "", 0.0, -1.0
-    for candidate in _variants(image):
-        data_out = pytesseract.image_to_data(candidate, config="--psm 6", output_type=Output.DICT)
-        words, confidences = [], []
-        for word, conf in zip(data_out["text"], data_out["conf"]):
-            word = word.strip()
-            try: confidence = float(conf)
-            except (TypeError, ValueError): continue
-            if word and confidence >= 0:
-                words.append(word); confidences.append(confidence)
-        grouped = {}
-        for i, word in enumerate(data_out["text"]):
-            word = word.strip()
-            if not word: continue
-            key = (data_out["block_num"][i], data_out["par_num"][i], data_out["line_num"][i])
-            grouped.setdefault(key, []).append(word)
-        text = "\n".join(" ".join(line) for line in grouped.values()).strip()
-        mean_conf = (sum(confidences) / len(confidences) / 100.0) if confidences else 0.0
-        score = min(len(text), 700) / 700 + mean_conf
-        if score > best_score:
-            best_text, best_conf, best_score = text, mean_conf, score
-    return best_text, round(best_conf, 3)
+
+    # Fast path: one OCR pass at the source resolution. This is the common case.
+    text, confidence = _ocr_pass(_base_preprocess(image))
+    if not _needs_enhanced_retry(text, confidence):
+        return text, round(confidence, 3)
+
+    # Fallback: retry once at higher resolution only when critical extraction failed.
+    retry_text, retry_confidence = _ocr_pass(_enhanced_preprocess(image))
+    first_fields, retry_fields = parse_fields(text), parse_fields(retry_text)
+    first_critical = sum(bool(first_fields.get(k)) for k in ("alcohol_content", "net_contents"))
+    retry_critical = sum(bool(retry_fields.get(k)) for k in ("alcohol_content", "net_contents"))
+    first_score = min(len(text), 700) / 700 + confidence
+    retry_score = min(len(retry_text), 700) / 700 + retry_confidence
+    if retry_critical > first_critical or (retry_critical == first_critical and retry_score > first_score):
+        text, confidence = retry_text, retry_confidence
+    return text, round(confidence, 3)
 
 
 def text_similarity(expected: str, actual: str) -> float:
