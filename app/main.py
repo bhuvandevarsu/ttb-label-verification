@@ -25,7 +25,7 @@ except Exception:
     TESSERACT_AVAILABLE = False
 
 BASE_DIR = Path(__file__).resolve().parent
-app = FastAPI(title="TTB Label Verification Prototype", version="1.1.0")
+app = FastAPI(title="TTB Label Verification Prototype", version="1.2.0")
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 # Keep OCR concurrency deliberately small so lightweight hosts remain responsive.
@@ -40,6 +40,7 @@ STANDARD_WARNING = (
 def normalize_text(value: str) -> str:
     value = (value or "").upper().strip().replace("’", "'")
     value = re.sub(r"[^A-Z0-9%./' -]", " ", value)
+    value = re.sub(r"\bWHISKY\b", "WHISKEY", value)
     return re.sub(r"\s+", " ", value).strip()
 
 
@@ -67,14 +68,11 @@ def parse_fields(text: str) -> dict[str, str]:
         if match: brand = match.group(1)
     abv = after([r"^(?:abv|alcohol content|alcohol by volume)\s*[:\-]\s*(.+)$"])
     net = after([r"^(?:net contents|contents)\s*[:\-]\s*(.+)$"])
-    producer = after([r"^(?:producer|bottler|bottled by|produced by)\s*[:\-]\s*(.+)$"])
+    producer = after([r"^(?:producer|bottler)\s*[:\-]\s*(.+)$", r"^(?:bottled|produced|distilled|packed)\s+by\s+(?:the\s+)?(.+)$"])
     country = after([r"^(?:country of origin|origin)\s*[:\-]\s*(.+)$"])
 
-    if not brand:
-        for line in lines[:8]:
-            if 3 <= len(line) <= 45 and not re.search(r"warning|bourbon|whiskey|whisky|%|750|ml|distillery|kentucky", line, re.I):
-                brand = line
-                break
+    # Do not guess a brand from an arbitrary prominent line. A missing brand is
+    # safer to route to human review than a false, confident mismatch.
     if not class_type:
         if re.search(r"KENTUCKY\s+STRAIGHT", joined, re.I) and re.search(r"BOURBON\s+WHISKEY", joined, re.I):
             class_type = "Kentucky Straight Bourbon Whiskey"
@@ -89,8 +87,11 @@ def parse_fields(text: str) -> dict[str, str]:
         if match:
             net = match.group(1) + " " + match.group(2)
     if not producer:
-        match = re.search(r"BOTTLED BY\s+(.+?)(?=\s+(?:FRANKFORT|UNITED STATES|GOVERNMENT WARNING)\b)", joined, re.I)
-        if match: producer = match.group(1).strip()
+        match = re.search(
+            r"(?:BOTTLED|PRODUCED|DISTILLED|PACKED)\s+BY\s+(?:THE\s+)?(.+?)(?=\s+(?:GOVERNMENT WARNING|\d+(?:\.\d+)?\s*%|\d+\s*M[L1I]|UNITED STATES)\b|$)",
+            joined, re.I
+        )
+        if match: producer = match.group(1).strip(" .,-")
     if not country:
         match = re.search(r"\b(UNITED STATES|USA|U\.?S\.?A\.?)\b", joined, re.I)
         if match: country = match.group(1)
@@ -219,9 +220,14 @@ def compare_number(expected: str, actual: str, field: str) -> tuple[str, str]:
         return "pass", "Not provided in application data"
     if a is None:
         return "review", f"Could not reliably extract {field} from label"
+    # Do not turn obviously implausible OCR into a confident compliance failure.
+    # A real, plausible conflicting value (for example 40% vs 45%) remains FAIL.
+    if field == "Alcohol Content" and not (0 < a <= 100):
+        return "review", f"Extracted Alcohol Content {a:g}% is implausible and may be an OCR error"
+    if field == "Net Contents" and a <= 0:
+        return "review", f"Extracted Net Contents {a:g} is implausible and may be an OCR error"
     if abs(e - a) < 0.001:
         return "pass", f"Match: {a:g}"
-    # Numeric mismatches are deterministic once both values were extracted.
     return "fail", f"Expected {e:g}, extracted {a:g}"
 
 
@@ -278,6 +284,51 @@ def verify(application: dict[str, str], extracted: dict[str, str], raw_text: str
     return {"status": status, "checks": checks, "reasons": reasons, "extracted": extracted, "raw_text": raw_text, "ocr_confidence": round(ocr_confidence, 2)}
 
 
+def aggregate_panel_results(application: dict[str, str], panels: list[dict[str, Any]]) -> dict[str, Any]:
+    """Verify one application against evidence spread across multiple label panels."""
+    field_keys = ("brand_name", "class_type", "producer", "country_of_origin", "alcohol_content", "net_contents", "government_warning")
+    aggregated: dict[str, str] = {k: "" for k in field_keys}
+    provenance: dict[str, str] = {}
+
+    # Prefer higher-confidence non-empty evidence, but keep the decision generic and
+    # independent of the expected application value.
+    for key in field_keys:
+        candidates = []
+        for panel in panels:
+            value = panel.get("extracted", {}).get(key, "")
+            if value:
+                candidates.append((panel.get("ocr_confidence", 0.0), len(value), value, panel.get("filename", "")))
+        if candidates:
+            _, _, value, filename = max(candidates, key=lambda x: (x[0], x[1]))
+            aggregated[key] = value
+            provenance[key] = filename
+
+    combined_text = "\n\n".join(
+        f"--- {p.get('filename', 'panel')} ---\n{p.get('raw_text', '')}" for p in panels
+    )
+    confidences = [p.get("ocr_confidence", 0.0) for p in panels if p.get("raw_text")]
+    # A weak panel should not drag an otherwise readable multi-panel submission below
+    # the review threshold; field-level uncertainty is handled by the checks below.
+    aggregate_confidence = max(confidences) if confidences else 0.0
+    result = verify(application, aggregated, combined_text, aggregate_confidence)
+    result["filename"] = f"Application label set ({len(panels)} panels)"
+    result["panel_count"] = len(panels)
+    result["provenance"] = provenance
+    result["panels"] = [
+        {"filename": p.get("filename", ""), "ocr_confidence": p.get("ocr_confidence", 0.0), "extracted": p.get("extracted", {}), "raw_text": p.get("raw_text", "")}
+        for p in panels
+    ]
+    for check in result["checks"]:
+        key = {
+            "Brand Name": "brand_name", "Class/Type": "class_type", "Producer/Bottler": "producer",
+            "Country of Origin": "country_of_origin", "Alcohol Content": "alcohol_content",
+            "Net Contents": "net_contents", "Government Warning": "government_warning"
+        }[check["field"]]
+        if provenance.get(key):
+            check["source"] = provenance[key]
+    return result
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return (BASE_DIR / "static" / "index.html").read_text()
@@ -327,6 +378,28 @@ async def verify_batch(files: list[UploadFile] = File(...), application_json: st
         *(loop.run_in_executor(OCR_EXECUTOR, process_batch_item, item) for item in items)
     )
     return {"total": len(results), "passed": sum(r["status"] == "PASS" for r in results), "review": sum(r["status"] == "NEEDS REVIEW" for r in results), "failed": sum(r["status"] == "FAIL" for r in results), "errors": sum(r["status"] == "ERROR" for r in results), "results": results}
+
+
+@app.post("/api/verify-set")
+async def verify_set(files: list[UploadFile] = File(...), application_json: str = Form(...)):
+    """Treat all uploaded images as panels belonging to one application."""
+    application = json.loads(application_json)
+    items = [(f.filename, await f.read(), application, "") for f in files]
+    loop = asyncio.get_running_loop()
+    panels = await asyncio.gather(
+        *(loop.run_in_executor(OCR_EXECUTOR, process_batch_item, item) for item in items)
+    )
+    if any(p.get("status") == "ERROR" for p in panels):
+        return {"total": 1, "passed": 0, "review": 0, "failed": 0, "errors": 1, "results": panels}
+    result = aggregate_panel_results(application, panels)
+    return {
+        "total": 1,
+        "passed": int(result["status"] == "PASS"),
+        "review": int(result["status"] == "NEEDS REVIEW"),
+        "failed": int(result["status"] == "FAIL"),
+        "errors": 0,
+        "results": [result],
+    }
 
 
 @app.post("/api/export-csv")

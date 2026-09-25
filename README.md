@@ -135,3 +135,9 @@ Recommended Render health check path: `/api/health`.
 The OCR pipeline is optimized around the prototype's interactive latency requirement. Each label first receives one source-resolution Tesseract pass after lightweight grayscale/contrast preprocessing. A more expensive 1.5x-resolution retry runs only when OCR confidence is low, too few fields are found, or a critical numeric field (ABV/net contents) is missing. Text ambiguity is routed to human review instead of repeatedly OCRing every image. Batch OCR remains bounded to two workers so the API and health endpoint stay responsive on lightweight hosts.
 
 On the included six synthetic fixtures in the development environment, the optimized two-worker batch completed in about 5.3 seconds total while preserving the expected outcomes (3 PASS, 1 NEEDS REVIEW, 2 FAIL). Hosted latency varies with instance CPU, cold starts, and contention, so this benchmark is illustrative rather than a production SLA.
+
+## Multi-panel application verification
+
+When an application includes multiple images for the same product (for example front and back panels), select **One application: images are front/back/other panels**. The service OCRs the panels concurrently, aggregates field evidence across the set, records the source image for each extracted field, and produces one application-level PASS / NEEDS REVIEW / FAIL result. **Batch** mode remains available when each uploaded image represents a separate label/application.
+
+The verifier treats implausible numeric OCR (for example an alcohol percentage above 100%) as uncertain evidence requiring human review rather than a hard compliance failure. Plausible, confidently extracted numeric conflicts remain hard failures.

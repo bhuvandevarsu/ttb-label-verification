@@ -70,3 +70,23 @@ Country of Origin: United States
 {STANDARD_WARNING}'''
     result = verify(app, parse_fields(text), text, .9)
     assert result['status'] == 'FAIL'
+
+
+def test_implausible_abv_routes_to_review():
+    app = {'brand_name':'WOODFORD RESERVE','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45.2%','net_contents':'750 mL','producer':'Woodford Reserve Distillery','country_of_origin':'United States'}
+    extracted = {'brand_name':'WOODFORD RESERVE','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'459%','net_contents':'750 mL','producer':'Woodford Reserve Distillery','country_of_origin':'United States','government_warning':STANDARD_WARNING}
+    result = verify(app, extracted, '', .9)
+    assert result['status'] == 'NEEDS REVIEW'
+    abv = next(c for c in result['checks'] if c['field'] == 'Alcohol Content')
+    assert abv['status'] == 'review'
+
+
+def test_multi_panel_aggregation_combines_evidence():
+    from app.main import aggregate_panel_results
+    app = {'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45%','net_contents':'750 mL','producer':'Old Tom Distillery','country_of_origin':'United States'}
+    front = {'filename':'front.jpg','ocr_confidence':.92,'raw_text':'front','extracted':{'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45%','net_contents':'750 mL','producer':'','country_of_origin':'','government_warning':''}}
+    back = {'filename':'back.jpg','ocr_confidence':.90,'raw_text':'back','extracted':{'brand_name':'','class_type':'','alcohol_content':'','net_contents':'','producer':'Old Tom Distillery','country_of_origin':'United States','government_warning':STANDARD_WARNING}}
+    result = aggregate_panel_results(app, [front, back])
+    assert result['status'] == 'PASS'
+    assert result['provenance']['alcohol_content'] == 'front.jpg'
+    assert result['provenance']['government_warning'] == 'back.jpg'
