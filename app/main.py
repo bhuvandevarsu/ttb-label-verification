@@ -214,7 +214,7 @@ def compare_text(expected: str, actual: str) -> tuple[str, str]:
     return "fail", f'Expected "{expected}" but extracted "{actual}"'
 
 
-def compare_number(expected: str, actual: str, field: str) -> tuple[str, str]:
+def compare_number(expected: str, actual: str, field: str, evidence_confidence: float = 1.0) -> tuple[str, str]:
     e, a = extract_number(expected), extract_number(actual)
     if e is None:
         return "pass", "Not provided in application data"
@@ -228,6 +228,11 @@ def compare_number(expected: str, actual: str, field: str) -> tuple[str, str]:
         return "review", f"Extracted Net Contents {a:g} is implausible and may be an OCR error"
     if abs(e - a) < 0.001:
         return "pass", f"Match: {a:g}"
+    # A numeric contradiction is only a hard failure when the OCR evidence itself
+    # is sufficiently reliable. This prevents a dropped decimal or digit confusion
+    # on a difficult label from becoming a false compliance failure.
+    if evidence_confidence < 0.85:
+        return "review", f"{field} could not be reliably verified (OCR read {a:g}; confidence {evidence_confidence:.0%})"
     return "fail", f"Expected {e:g}, extracted {a:g}"
 
 
@@ -256,13 +261,17 @@ def compare_warning(actual: str) -> tuple[str, str]:
     return "fail", "Warning text differs materially from the required standard text"
 
 
-def verify(application: dict[str, str], extracted: dict[str, str], raw_text: str, ocr_confidence: float) -> dict[str, Any]:
+def verify(application: dict[str, str], extracted: dict[str, str], raw_text: str, ocr_confidence: float, field_confidences: dict[str, float] | None = None) -> dict[str, Any]:
     checks = []
+    field_confidences = field_confidences or {}
     for key, label in [("brand_name", "Brand Name"), ("class_type", "Class/Type"), ("producer", "Producer/Bottler"), ("country_of_origin", "Country of Origin")]:
         check_status, detail = compare_text(application.get(key, ""), extracted.get(key, ""))
         checks.append({"field": label, "status": check_status, "detail": detail})
     for key, label in [("alcohol_content", "Alcohol Content"), ("net_contents", "Net Contents")]:
-        check_status, detail = compare_number(application.get(key, ""), extracted.get(key, ""), label)
+        check_status, detail = compare_number(
+            application.get(key, ""), extracted.get(key, ""), label,
+            field_confidences.get(key, ocr_confidence),
+        )
         checks.append({"field": label, "status": check_status, "detail": detail})
 
     warning_status, warning_detail = compare_warning(extracted.get("government_warning", ""))
@@ -310,7 +319,12 @@ def aggregate_panel_results(application: dict[str, str], panels: list[dict[str, 
     # A weak panel should not drag an otherwise readable multi-panel submission below
     # the review threshold; field-level uncertainty is handled by the checks below.
     aggregate_confidence = max(confidences) if confidences else 0.0
-    result = verify(application, aggregated, combined_text, aggregate_confidence)
+    field_confidences = {}
+    for key, source in provenance.items():
+        source_panel = next((p for p in panels if p.get("filename", "") == source), None)
+        if source_panel is not None:
+            field_confidences[key] = source_panel.get("ocr_confidence", 0.0)
+    result = verify(application, aggregated, combined_text, aggregate_confidence, field_confidences)
     result["filename"] = f"Application label set ({len(panels)} panels)"
     result["panel_count"] = len(panels)
     result["provenance"] = provenance
