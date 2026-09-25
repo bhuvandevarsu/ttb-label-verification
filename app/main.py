@@ -236,7 +236,7 @@ def compare_number(expected: str, actual: str, field: str, evidence_confidence: 
     return "fail", f"Expected {e:g}, extracted {a:g}"
 
 
-def compare_warning(actual: str) -> tuple[str, str]:
+def compare_warning(actual: str, evidence_confidence: float = 1.0) -> tuple[str, str]:
     actual = (actual or "").strip()
     if not actual:
         return "review", "Government warning could not be reliably extracted"
@@ -251,6 +251,8 @@ def compare_warning(actual: str) -> tuple[str, str]:
     required_negation = "WOMEN SHOULD NOT DRINK ALCOHOLIC BEVERAGES"
     altered_negation = "WOMEN SHOULD DRINK ALCOHOLIC BEVERAGES"
     if required_negation not in actual_norm and altered_negation in actual_norm:
+        if evidence_confidence < 0.85:
+            return "review", f"Warning text may change required statutory language, but OCR confidence is only {evidence_confidence:.0%}"
         return "fail", "Warning text changes required statutory language"
 
     similarity = text_similarity(STANDARD_WARNING, actual)
@@ -258,6 +260,8 @@ def compare_warning(actual: str) -> tuple[str, str]:
     # rotated/glare images. They require human confirmation, not an automatic fail.
     if similarity >= 0.80:
         return "review", f"Warning text is close to the required text but contains possible OCR errors ({similarity:.0%} similarity)"
+    if evidence_confidence < 0.85:
+        return "review", f"Government warning could not be reliably verified (OCR confidence {evidence_confidence:.0%}; {similarity:.0%} text similarity)"
     return "fail", "Warning text differs materially from the required standard text"
 
 
@@ -274,7 +278,10 @@ def verify(application: dict[str, str], extracted: dict[str, str], raw_text: str
         )
         checks.append({"field": label, "status": check_status, "detail": detail})
 
-    warning_status, warning_detail = compare_warning(extracted.get("government_warning", ""))
+    warning_status, warning_detail = compare_warning(
+        extracted.get("government_warning", ""),
+        field_confidences.get("government_warning", ocr_confidence),
+    )
     checks.append({"field": "Government Warning", "status": warning_status, "detail": warning_detail})
 
     hard_fail = any(c["status"] == "fail" for c in checks)

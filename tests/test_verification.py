@@ -106,3 +106,20 @@ def test_high_confidence_plausible_abv_mismatch_still_fails():
     extracted = {'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'40%','net_contents':'750 mL','producer':'Old Tom Distillery','country_of_origin':'United States','government_warning':STANDARD_WARNING}
     result = verify(app, extracted, '', .94)
     assert result['status'] == 'FAIL'
+
+
+def test_low_confidence_material_warning_difference_routes_to_review():
+    app = {'brand_name':'ABC','class_type':'STRAIGHT RYE WHISKY','alcohol_content':'45%','net_contents':'750 mL','producer':'ABC DISTILLERY','country_of_origin':'United States'}
+    extracted = {'brand_name':'','class_type':'','alcohol_content':'45%','net_contents':'750 mL','producer':'','country_of_origin':'','government_warning':'GOVERNMENT WARNING: badly corrupted OCR text that does not reliably preserve the statutory warning'}
+    result = verify(app, extracted, '', .65)
+    assert result['status'] == 'NEEDS REVIEW'
+    warning = next(c for c in result['checks'] if c['field'] == 'Government Warning')
+    assert warning['status'] == 'review'
+
+def test_high_confidence_material_warning_difference_still_fails():
+    app = {'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45%','net_contents':'750 mL','producer':'Old Tom Distillery','country_of_origin':'United States'}
+    extracted = {'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45%','net_contents':'750 mL','producer':'Old Tom Distillery','country_of_origin':'United States','government_warning':'GOVERNMENT WARNING: Different warning'}
+    result = verify(app, extracted, '', .95)
+    assert result['status'] == 'FAIL'
+    warning = next(c for c in result['checks'] if c['field'] == 'Government Warning')
+    assert warning['status'] == 'fail'
