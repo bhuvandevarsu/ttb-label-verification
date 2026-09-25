@@ -2,6 +2,8 @@
 
 A standalone proof-of-concept for automated alcohol-label verification. The prototype uses local OCR to extract label text, normalizes common formatting differences, compares extracted fields with application data, and returns explainable **PASS / NEEDS REVIEW / FAIL** results.
 
+**Live prototype:** https://ttb-label-verification-797442028756.us-east4.run.app/
+
 ![Architecture](docs/architecture.svg)
 
 ## Take-home approach
@@ -130,16 +132,18 @@ The take-home asks for a working core application with clean code, appropriate t
 
 The Docker image is suitable for container hosting such as Google Cloud Run. Blocking Tesseract OCR runs in a bounded worker pool so the FastAPI event loop remains available for health checks while OCR is in progress. Uvicorn binds to the platform-provided `PORT` environment variable. Health check path: `/api/health`.
 
-Add the final public deployed URL here before submission so reviewers can open the prototype directly from the repository.
+**Public deployment:** https://ttb-label-verification-797442028756.us-east4.run.app/
 
 ## Latency-oriented OCR strategy
 
 The OCR pipeline is optimized around the prototype's interactive latency requirement. Each label first receives one source-resolution Tesseract pass after lightweight grayscale/contrast preprocessing. A more expensive 1.5x-resolution retry runs only when OCR confidence is low, too few fields are found, or a critical numeric field (ABV/net contents) is missing. Text ambiguity is routed to human review instead of repeatedly OCRing every image. Batch OCR remains bounded to two workers so the API and health endpoint stay responsive on lightweight hosts.
 
-The stakeholder target is approximately five seconds for routine interactive verification. Record the final Cloud Run measurements here before submission rather than treating a development-machine benchmark as hosted performance:
+The stakeholder target is approximately five seconds for routine interactive verification. Final measurements from the deployed Google Cloud Run prototype were:
 
-- Warm single-label request: `TODO: measured seconds`
-- Six-label batch: `TODO: measured seconds`
+- `01_pass_clean.jpg`: approximately **1 second**
+- All six synthetic labels in one batch: approximately **4 seconds**
+
+These observed runs meet the stakeholder target for the tested workload.
 
 Hosted latency varies with image complexity, OCR fallback retries, instance CPU, cold starts, and contention. Cold-start latency should be reported separately from warm request latency.
 
