@@ -123,3 +123,19 @@ def test_high_confidence_material_warning_difference_still_fails():
     assert result['status'] == 'FAIL'
     warning = next(c for c in result['checks'] if c['field'] == 'Government Warning')
     assert warning['status'] == 'fail'
+
+
+def test_parse_producer_address():
+    text = """Producer: ABC DISTILLERY
+Address: Frederick, MD
+Alcohol Content: 45%
+Net Contents: 750 mL"""
+    result = parse_fields(text)
+    assert result['producer_address'] == 'Frederick, MD'
+
+
+def test_blank_optional_fields_do_not_block_pass():
+    app = {'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45%','net_contents':'750 mL','producer':'Old Tom Distillery','producer_address':'','country_of_origin':''}
+    extracted = {'brand_name':'OLD TOM DISTILLERY','class_type':'Kentucky Straight Bourbon Whiskey','alcohol_content':'45%','net_contents':'750 mL','producer':'Old Tom Distillery','producer_address':'','country_of_origin':'','government_warning':STANDARD_WARNING}
+    result = verify(app, extracted, '', .95)
+    assert result['status'] == 'PASS'

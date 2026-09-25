@@ -70,6 +70,7 @@ def parse_fields(text: str) -> dict[str, str]:
     net = after([r"^(?:net contents|contents)\s*[:\-]\s*(.+)$"])
     producer = after([r"^(?:producer|bottler)\s*[:\-]\s*(.+)$", r"^(?:bottled|produced|distilled|packed)\s+by\s+(?:the\s+)?(.+)$"])
     country = after([r"^(?:country of origin|origin)\s*[:\-]\s*(.+)$"])
+    producer_address = after([r"^(?:producer/bottler address|producer address|bottler address|address)\s*[:\-]\s*(.+)$"])
 
     # Do not guess a brand from an arbitrary prominent line. A missing brand is
     # safer to route to human review than a false, confident mismatch.
@@ -92,6 +93,12 @@ def parse_fields(text: str) -> dict[str, str]:
             joined, re.I
         )
         if match: producer = match.group(1).strip(" .,-")
+    if not producer_address:
+        # Common TTB name/address presentation: a city and two-letter state, often
+        # on the line immediately following the producer/bottler name.
+        match = re.search(r"\b([A-Z][A-Z .'-]{2,},\s*[A-Z]{2})\b", joined, re.I)
+        if match:
+            producer_address = match.group(1).strip()
     if not country:
         match = re.search(r"\b(UNITED STATES|USA|U\.?S\.?A\.?)\b", joined, re.I)
         if match: country = match.group(1)
@@ -104,6 +111,7 @@ def parse_fields(text: str) -> dict[str, str]:
         "alcohol_content": abv,
         "net_contents": net,
         "producer": producer,
+        "producer_address": producer_address,
         "country_of_origin": country,
         "government_warning": warning,
     }
@@ -244,7 +252,7 @@ def compare_warning(actual: str, evidence_confidence: float = 1.0) -> tuple[str,
     expected_norm = normalize_text(STANDARD_WARNING)
     actual_norm = normalize_text(actual)
     if actual_norm == expected_norm:
-        return "pass", "Exact required warning text detected"
+        return "pass", "Exact required warning text detected (typography not assessed by OCR prototype)"
 
     # Preserve hard failures for meaningful changes to the statutory language.
     # The synthetic fail fixture deliberately removes the word "not" here.
@@ -268,7 +276,7 @@ def compare_warning(actual: str, evidence_confidence: float = 1.0) -> tuple[str,
 def verify(application: dict[str, str], extracted: dict[str, str], raw_text: str, ocr_confidence: float, field_confidences: dict[str, float] | None = None) -> dict[str, Any]:
     checks = []
     field_confidences = field_confidences or {}
-    for key, label in [("brand_name", "Brand Name"), ("class_type", "Class/Type"), ("producer", "Producer/Bottler"), ("country_of_origin", "Country of Origin")]:
+    for key, label in [("brand_name", "Brand Name"), ("class_type", "Class/Type"), ("producer", "Producer/Bottler"), ("producer_address", "Producer/Bottler Address"), ("country_of_origin", "Country of Origin")]:
         check_status, detail = compare_text(application.get(key, ""), extracted.get(key, ""))
         checks.append({"field": label, "status": check_status, "detail": detail})
     for key, label in [("alcohol_content", "Alcohol Content"), ("net_contents", "Net Contents")]:
@@ -302,7 +310,7 @@ def verify(application: dict[str, str], extracted: dict[str, str], raw_text: str
 
 def aggregate_panel_results(application: dict[str, str], panels: list[dict[str, Any]]) -> dict[str, Any]:
     """Verify one application against evidence spread across multiple label panels."""
-    field_keys = ("brand_name", "class_type", "producer", "country_of_origin", "alcohol_content", "net_contents", "government_warning")
+    field_keys = ("brand_name", "class_type", "producer", "producer_address", "country_of_origin", "alcohol_content", "net_contents", "government_warning")
     aggregated: dict[str, str] = {k: "" for k in field_keys}
     provenance: dict[str, str] = {}
 
@@ -342,7 +350,7 @@ def aggregate_panel_results(application: dict[str, str], panels: list[dict[str, 
     for check in result["checks"]:
         key = {
             "Brand Name": "brand_name", "Class/Type": "class_type", "Producer/Bottler": "producer",
-            "Country of Origin": "country_of_origin", "Alcohol Content": "alcohol_content",
+            "Producer/Bottler Address": "producer_address", "Country of Origin": "country_of_origin", "Alcohol Content": "alcohol_content",
             "Net Contents": "net_contents", "Government Warning": "government_warning"
         }[check["field"]]
         if provenance.get(key):

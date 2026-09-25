@@ -17,7 +17,7 @@ The application is standalone and does not integrate with COLA. Batch processing
 - EXIF rotation handling
 - Grayscale, autocontrast, sharpening, and lightweight thresholding preprocessing
 - OCR confidence from word-level Tesseract data
-- Extraction of brand, class/type, ABV, net contents, producer, country, and government warning
+- Extraction of brand, class/type, ABV, net contents, producer/bottler name, producer/bottler address, country of origin, and government warning
 - Normalized text matching for ordinary capitalization/punctuation differences
 - Numeric matching for ABV and net contents
 - Exact government-warning comparison
@@ -75,7 +75,7 @@ Open `http://localhost:8000`.
 
 ### Text fields
 
-Brand, class/type, producer, and country use normalized comparison. Capitalization and ordinary punctuation differences are normalized before comparison.
+Brand, class/type, producer/bottler name, producer/bottler address, and country use normalized comparison. Country of origin is treated as application data when applicable, such as imported products; leaving an application field blank skips that comparison. Capitalization and ordinary punctuation differences are normalized before comparison.
 
 ### Numeric fields
 
@@ -83,7 +83,7 @@ ABV and net contents are compared numerically. This means `45%` and `45.0%` repr
 
 ### Government warning
 
-The government warning is intentionally strict. The extracted warning must normalize to the standard warning string used by the prototype. Any difference produces a field-level failure.
+The government warning uses the statutory wording as the reference text. Exact extracted wording passes; likely OCR corruption is routed to `NEEDS REVIEW`; reliable material changes fail. The prototype checks wording and capitalization from OCR text. It does **not** claim to reliably verify visual typography such as bold weight, minimum type size, characters per inch, contrast, or placement. Those require layout/vision analysis and remain a production enhancement.
 
 ### Human review
 
@@ -109,6 +109,8 @@ A low OCR confidence score produces `NEEDS REVIEW` when there are no determinist
 6. Uploaded image bytes are processed in memory and are not intentionally persisted by the application.
 7. Production deployment would require federal security controls, retention policies, access control, audit logging, monitoring, model/OCR validation, and formal regulatory review.
 8. No attempt is made to claim that the prototype determines legal compliance for every beverage category or regulatory exception.
+9. Government-warning typography (including bold weight and type-size/placement rules) is not reliably validated by text OCR and is documented as a production enhancement.
+10. Batch upload is implemented with bounded concurrency, but production-scale throughput for 200–300 applications has not been load-tested; a production design would use queued/background workers and capacity testing.
 
 ## Testing
 
@@ -118,23 +120,28 @@ Run:
 PYTHONPATH=. pytest -q
 ```
 
-The included unit tests cover field extraction, a passing verification, and a government-warning failure.
+The included unit tests cover field extraction, producer/bottler address handling, optional application fields, passing verification, OCR ambiguity, multi-panel aggregation, numeric mismatches, and government-warning failures.
 
 ## Scope rationale
 
 The take-home asks for a working core application with clean code, appropriate technical choices, good UX/error handling, attention to requirements, and documented trade-offs. The prototype prioritizes those areas instead of attempting a multi-million-dollar COLA rebuild or a production federal deployment.
 
-## Render deployment
+## Deployment
 
-This project is deployment-safe for a small Render web service. Blocking Tesseract OCR runs in a bounded worker pool so the FastAPI event loop remains available for health checks while OCR is in progress. The Docker image binds Uvicorn to Render's `PORT` environment variable, defaulting to port 10000.
+The Docker image is suitable for container hosting such as Google Cloud Run. Blocking Tesseract OCR runs in a bounded worker pool so the FastAPI event loop remains available for health checks while OCR is in progress. Uvicorn binds to the platform-provided `PORT` environment variable. Health check path: `/api/health`.
 
-Recommended Render health check path: `/api/health`.
+Add the final public deployed URL here before submission so reviewers can open the prototype directly from the repository.
 
 ## Latency-oriented OCR strategy
 
 The OCR pipeline is optimized around the prototype's interactive latency requirement. Each label first receives one source-resolution Tesseract pass after lightweight grayscale/contrast preprocessing. A more expensive 1.5x-resolution retry runs only when OCR confidence is low, too few fields are found, or a critical numeric field (ABV/net contents) is missing. Text ambiguity is routed to human review instead of repeatedly OCRing every image. Batch OCR remains bounded to two workers so the API and health endpoint stay responsive on lightweight hosts.
 
-On the included six synthetic fixtures in the development environment, the optimized two-worker batch completed in about 5.3 seconds total while preserving the expected outcomes (3 PASS, 1 NEEDS REVIEW, 2 FAIL). Hosted latency varies with instance CPU, cold starts, and contention, so this benchmark is illustrative rather than a production SLA.
+The stakeholder target is approximately five seconds for routine interactive verification. Record the final Cloud Run measurements here before submission rather than treating a development-machine benchmark as hosted performance:
+
+- Warm single-label request: `TODO: measured seconds`
+- Six-label batch: `TODO: measured seconds`
+
+Hosted latency varies with image complexity, OCR fallback retries, instance CPU, cold starts, and contention. Cold-start latency should be reported separately from warm request latency.
 
 ## Multi-panel application verification
 
